@@ -52,9 +52,23 @@ class DM_Serial:
 
         # 最新数据（线程安全）
         self._latest_lock = threading.Lock()
+        # 兼容旧接口：存最近一帧（不区分类型）
         self._latest_pkt: Optional[Tuple[int, Tuple[float, float, float]]] = None
         self._latest_ts: float = 0.0
         self._latest_count: int = 0
+
+        # 新接口：按类型缓存最新值
+        self._latest_accel: Optional[Tuple[float, float, float]] = None
+        self._latest_accel_ts: float = 0.0
+        self._latest_accel_count: int = 0
+
+        self._latest_gyro: Optional[Tuple[float, float, float]] = None
+        self._latest_gyro_ts: float = 0.0
+        self._latest_gyro_count: int = 0
+
+        self._latest_rpy: Optional[Tuple[float, float, float]] = None
+        self._latest_rpy_ts: float = 0.0
+        self._latest_rpy_count: int = 0
         self._last_error: Optional[str] = None
 
         self._open()
@@ -67,6 +81,13 @@ class DM_Serial:
         self._read_into_buf(max_bytes)
         frames = self._parse_all()
         return frames[-1] if frames else None
+
+    def read_all(self, max_bytes: int | None = None) -> List[Tuple[int, Tuple[float, float, float]]]:
+        """一次性读入串口当前可读字节，解析所有完整帧并返回。"""
+        if not self.ser or not self.ser.is_open:
+            return []
+        self._read_into_buf(max_bytes)
+        return self._parse_all()
 
     def start_reader(self, read_sleep: float = 0.001) -> bool:
         """启动只负责刷新数据的后台线程；不打印。"""
@@ -96,8 +117,59 @@ class DM_Serial:
         with self._latest_lock:
             return self._latest_pkt, self._latest_ts, self._latest_count
 
+    def get_latest_all(self) -> Tuple[
+        Optional[Tuple[float, float, float]],
+        Optional[Tuple[float, float, float]],
+        Optional[Tuple[float, float, float]],
+        float,
+        float,
+        float,
+        int,
+        int,
+        int,
+    ]:
+        """
+        线程安全地获取（accel, gyro, rpy, accel_ts, gyro_ts, rpy_ts, accel_cnt, gyro_cnt, rpy_cnt）。
+        accel/gyro/rpy 的单位与协议一致。
+        """
+        with self._latest_lock:
+            return (
+                self._latest_accel,
+                self._latest_gyro,
+                self._latest_rpy,
+                self._latest_accel_ts,
+                self._latest_gyro_ts,
+                self._latest_rpy_ts,
+                self._latest_accel_count,
+                self._latest_gyro_count,
+                self._latest_rpy_count,
+            )
+
     def last_error(self) -> Optional[str]:
         return self._last_error
+
+    def debug_read_raw_frames(self, max_bytes: int = 512, max_frames: int = 3) -> List[str]:
+        """
+        手动调试用：从串口读取少量字节并提取帧，返回十六进制字符串列表。
+        不影响后台线程逻辑，调用方自行决定何时使用。
+        """
+        if not self.ser or not self.ser.is_open:
+            return []
+        self._read_into_buf(max_bytes)
+        frames = []
+        buf = self._buf
+        start = 0
+
+        while len(frames) < max_frames:
+            j = buf.find(HDR, start)
+            if j < 0:
+                break
+            if len(buf) - j < FRAME_LEN:
+                break
+            frame = bytes(buf[j:j + FRAME_LEN])
+            frames.append(frame.hex())
+            start = j + FRAME_LEN
+        return frames
 
     def destory(self) -> None:
         """立即关闭串口（按你的拼写保留）。"""
@@ -140,12 +212,28 @@ class DM_Serial:
         evt = self._stop_evt
         try:
             while evt and not evt.is_set():
-                pkt = self.read(None)
-                if pkt is not None:
+                frames = self.read_all(None)
+                if frames:
+                    now = time.time()
                     with self._latest_lock:
-                        self._latest_pkt = pkt
-                        self._latest_ts = time.time()
-                        self._latest_count += 1
+                        for pkt in frames:
+                            rid, vals = pkt
+                            self._latest_pkt = pkt
+                            self._latest_ts = now
+                            self._latest_count += 1
+
+                            if rid == 0x01:
+                                self._latest_accel = vals
+                                self._latest_accel_ts = now
+                                self._latest_accel_count += 1
+                            elif rid == 0x02:
+                                self._latest_gyro = vals
+                                self._latest_gyro_ts = now
+                                self._latest_gyro_count += 1
+                            elif rid == 0x03:
+                                self._latest_rpy = vals
+                                self._latest_rpy_ts = now
+                                self._latest_rpy_count += 1
                 if self._read_sleep > 0.0:
                     time.sleep(self._read_sleep)
         except Exception as e:

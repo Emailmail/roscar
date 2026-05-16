@@ -109,29 +109,24 @@ class DmImuNode(Node):
     # ----------- Timers -----------
     def _on_timer_publish(self):
         try:
-            latest = self.ser.get_latest()
+            accel, gyro, rpy, accel_ts, gyro_ts, rpy_ts, _, _, _ = self.ser.get_latest_all()
         except Exception as e:
             if self.verbose:
-                self.get_logger().warn(f'get_latest() exception: {e}')
+                self.get_logger().warn(f'get_latest_all() exception: {e}')
             return
 
-        if latest is None:
+        if rpy is None:
             self._no_frame_ticks += 1
             if self._no_frame_ticks % 200 == 0 and self.verbose:  # ≈每秒一次
-                self.get_logger().warn('No frames yet from serial (≈1s). Check IMU streaming/baud/crc.')
+                self.get_logger().warn('No RPY frames yet from serial (≈1s). Check IMU streaming/baud/crc.')
             return
 
-        ok, stamp_ts, r_deg, p_deg, y_deg = self._extract_latest(latest)  # 提取数据!!
-        if not ok:
-            if not self._logged_bad_fmt_once and self.verbose:
-                self.get_logger().warn(f'Unknown latest frame format; example: {repr(latest)}')
-                self._logged_bad_fmt_once = True
-            return
+        r_deg, p_deg, y_deg = rpy
 
-        # 去重（优先用时间戳；没有就不去重）
-        if stamp_ts is not None and stamp_ts == self._last_stamp_ts:
+        # 去重（优先用 rpy_ts；没有就不去重）
+        if rpy_ts and rpy_ts == self._last_stamp_ts:
             return
-        self._last_stamp_ts = stamp_ts
+        self._last_stamp_ts = rpy_ts
 
         # 度→弧度
         r = r_deg * math.pi / 180.0
@@ -188,9 +183,29 @@ class DmImuNode(Node):
             imu.orientation_covariance[0] = 0.02
             imu.orientation_covariance[4] = 0.02
             imu.orientation_covariance[8] = 0.02
-            for i in range(9):
-                imu.angular_velocity_covariance[i] = -1.0
-                imu.linear_acceleration_covariance[i] = -1.0
+
+            if gyro is not None:
+                imu.angular_velocity.x = float(gyro[0])
+                imu.angular_velocity.y = float(gyro[1])
+                imu.angular_velocity.z = float(gyro[2])
+                imu.angular_velocity_covariance[0] = 0.02
+                imu.angular_velocity_covariance[4] = 0.02
+                imu.angular_velocity_covariance[8] = 0.02
+            else:
+                for i in range(9):
+                    imu.angular_velocity_covariance[i] = -1.0
+
+            if accel is not None:
+                imu.linear_acceleration.x = float(accel[0])
+                imu.linear_acceleration.y = float(accel[1])
+                imu.linear_acceleration.z = float(accel[2])
+                imu.linear_acceleration_covariance[0] = 0.02
+                imu.linear_acceleration_covariance[4] = 0.02
+                imu.linear_acceleration_covariance[8] = 0.02
+            else:
+                for i in range(9):
+                    imu.linear_acceleration_covariance[i] = -1.0
+
             self.pub_imu.publish(imu)
 
         # /imu/pose（原点+IMU姿态），便于 RViz 直接看 Pose
@@ -228,13 +243,8 @@ class DmImuNode(Node):
 
     # ----------- Helpers -----------
     def _extract_latest(self, latest) -> Tuple[bool, Optional[float], float, float, float]:
-        """
-        返回 (ok, stamp_ts, roll_deg, pitch_deg, yaw_deg)
-        - 兼容你的嵌套：((rid, (r,p,y)), ts, extra)
-        - 也兼容 dict / 扁平 tuple / 对象字段
-        """
+        """Deprecated: kept for backward compatibility; no longer used."""
         try:
-            # dict
             if isinstance(latest, dict):
                 r = latest.get('roll') or latest.get('r') or latest.get('Roll')
                 p = latest.get('pitch') or latest.get('p') or latest.get('Pitch')
@@ -242,38 +252,9 @@ class DmImuNode(Node):
                 ts = latest.get('ts') or latest.get('timestamp') or latest.get('time') or None
                 if r is not None and p is not None and y is not None:
                     return True, (float(ts) if ts is not None else None), float(r), float(p), float(y)
-
-            # tuple/list
-            if isinstance(latest, (tuple, list)):
-                # ((rid, (r,p,y)), ts, extra)
-                if len(latest) >= 2 and isinstance(latest[0], (tuple, list)):
-                    rid_part = latest[0]
-                    ts = latest[1] if isinstance(latest[1], (int, float)) else None
-                    if len(rid_part) == 2 and isinstance(rid_part[1], (tuple, list)) and len(rid_part[1]) >= 3:
-                        r, p, y = rid_part[1][0], rid_part[1][1], rid_part[1][2]
-                        return True, (float(ts) if ts is not None else None), float(r), float(p), float(y)
-                # (rid, r, p, y)
-                if len(latest) >= 4 and not isinstance(latest[0], (tuple, list)):
-                    _, r, p, y = latest[0], latest[1], latest[2], latest[3]
-                    return True, None, float(r), float(p), float(y)
-                # (r, p, y)
-                if len(latest) == 3:
-                    r, p, y = latest[0], latest[1], latest[2]
-                    return True, None, float(r), float(p), float(y)
-
-            # 对象字段
-            r = getattr(latest, 'roll', None)
-            p = getattr(latest, 'pitch', None)
-            y = getattr(latest, 'yaw', None)
-            ts = getattr(latest, 'ts', None) or getattr(latest, 'timestamp', None) or None
-            if r is not None and p is not None and y is not None:
-                return True, (float(ts) if ts is not None else None), float(r), float(p), float(y)
-
-            return False, None, 0.0, 0.0, 0.0
-        except Exception as e:
-            if self.verbose:
-                self.get_logger().debug(f'_extract_latest exception: {e}')
-            return False, None, 0.0, 0.0, 0.0
+        except Exception:
+            pass
+        return False, None, 0.0, 0.0, 0.0
 
     # ----------- Shutdown -----------
     def destroy_node(self):
