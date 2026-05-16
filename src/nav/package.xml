@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nav</name>
+  <version>0.1.0</version>
+  <description>Cartographer pure localization + Nav2 path planning for differential-drive robot</description>
+  <maintainer email="c1470759@outlook.com">Kielas</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>carto</depend>
+  <depend>cartographer_ros</depend>
+  <depend>nav2_amcl</depend>
+  <depend>nav2_behaviors</depend>
+  <depend>nav2_bt_navigator</depend>
+  <depend>nav2_controller</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>nav2_lifecycle_manager</depend>
+  <depend>nav2_map_server</depend>
+  <depend>nav2_mppi_controller</depend>
+  <depend>nav2_msgs</depend>
+  <depend>nav2_navfn_planner</depend>
+  <depend>nav2_planner</depend>
+  <depend>nav2_smoother</depend>
+  <depend>nav2_velocity_smoother</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
