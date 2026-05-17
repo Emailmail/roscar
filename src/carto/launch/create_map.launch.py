@@ -26,6 +26,15 @@ def generate_launch_description():
         ]),
     )
 
+    base_link_to_imu_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="base_link_to_imu_link",
+        arguments=["--x", "0.0", "--y", "0.0", "--z", "0.0",
+                   "--roll", "0.0", "--pitch", "0.0", "--yaw", "0.0",
+                   "--frame-id", "base_link", "--child-frame-id", "imu_link"],
+    )
+
     cartographer_node = Node(
         package="cartographer_ros",
         executable="cartographer_node",
@@ -52,9 +61,10 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="false"),
-        DeclareLaunchArgument("imu_port", default_value="/dev/ttyACM1"),
+        DeclareLaunchArgument("imu_port", default_value="/dev/ttyACM0"),
         imu_launch,
         lidar_launch,
+        base_link_to_imu_tf,
         cartographer_node,
         occupancy_grid_node,
     ])

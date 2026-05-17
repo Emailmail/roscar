@@ -9,7 +9,7 @@ def generate_launch_description():
     pkg_share = get_package_share_directory('dm_imu')
     params_file = os.path.join(pkg_share, 'config', 'params.yaml')
 
-    port_arg = DeclareLaunchArgument('port', default_value='/dev/ttyACM1')
+    port_arg = DeclareLaunchArgument('port', default_value='/dev/ttyACM0')
 
     return LaunchDescription([
         port_arg,
