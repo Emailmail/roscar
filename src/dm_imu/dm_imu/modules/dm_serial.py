@@ -14,6 +14,7 @@ DM_Serial: 达妙 IMU 串口读取类（支持“后台读线程” + 主线程�
 """
 from __future__ import annotations
 
+import os
 import struct
 import threading
 import time
@@ -208,10 +209,10 @@ class DM_Serial:
             return False
 
     def _reader_loop(self):
-        """后台线程：不断刷新最新数据，不打印。"""
+        """后台线程：不断刷新最新数据。USB 断开时自动重连。"""
         evt = self._stop_evt
-        try:
-            while evt and not evt.is_set():
+        while evt and not evt.is_set():
+            try:
                 frames = self.read_all(None)
                 if frames:
                     now = time.time()
@@ -236,9 +237,37 @@ class DM_Serial:
                                 self._latest_rpy_count += 1
                 if self._read_sleep > 0.0:
                     time.sleep(self._read_sleep)
-        except Exception as e:
-            # 不打印，记录错误字符串，便于主线程查询
-            self._last_error = f"reader_loop: {e!r}"
+            except (serial.SerialException, OSError, IOError) as e:
+                self._last_error = f"USB I/O error: {e!r}, reconnecting..."
+                self._close_serial()
+                if not self._wait_reconnect(evt):
+                    break
+            except Exception as e:
+                self._last_error = f"reader_loop: {e!r}"
+                time.sleep(0.01)
+
+    def _close_serial(self) -> None:
+        if self.ser:
+            try:
+                self.ser.close()
+            except Exception:
+                pass
+            finally:
+                self.ser = None
+
+    def _wait_reconnect(self, evt: threading.Event) -> bool:
+        time.sleep(0.5)
+        for _ in range(120):
+            if evt.is_set():
+                return False
+            if os.path.exists(self.port):
+                if self._open():
+                    with self._latest_lock:
+                        self._buf = bytearray()
+                    return True
+            time.sleep(0.5)
+        self._last_error = f"Failed to reconnect {self.port}"
+        return False
 
     def _read_into_buf(self, max_bytes: Optional[int]) -> int:
         """把串口里“当前可读”的字节读入缓冲；返回读取字节数。"""

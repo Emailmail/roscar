@@ -112,9 +112,9 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument("imu_port", default_value="/dev/ttyACM0",
+        DeclareLaunchArgument("imu_port", default_value="/dev/ttyUSB0",
                               description="IMU serial port"),
-        DeclareLaunchArgument("map_dir", default_value="/home/relog/roscar/src/map",
+        DeclareLaunchArgument("map_dir", default_value="/home/yilong/roscar/src/map",
                               description="Directory containing map files"),
         DeclareLaunchArgument("map_name", default_value="my_map",
                               description="Map base name (without extension)"),

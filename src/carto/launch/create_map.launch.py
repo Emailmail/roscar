@@ -61,7 +61,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="false"),
-        DeclareLaunchArgument("imu_port", default_value="/dev/ttyACM0"),
+        DeclareLaunchArgument("imu_port", default_value="/dev/ttyUSB0"),
         imu_launch,
         lidar_launch,
         base_link_to_imu_tf,

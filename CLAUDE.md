@@ -3,6 +3,7 @@
 ROS 2 Jazzy 机器人项目，集成 DM IMU 姿态传感器和 LDROBOT 激光雷达（LD06），用于差分驱动小车。
 
 **当前状态**：传感器驱动就绪，Cartographer LiDAR + IMU 建图已实现（无轮式里程计）。roscar_nav 定位+Nav2路径规划已实现。
+**IMU 连接方式**：DM IMU 通过 RS-485 → USB 适配器连接，端口 `/dev/ttyUSB0`。树莓派5 USB（RP1 芯片）存在周期性重置问题（约 8-16 分钟一次），直接 USB CDC ACM（`/dev/ttyACM0`）连接会断开。RS-485 方案绕过该问题。详见 [doc/rpi5-usb-autosuspend-bug.md](doc/rpi5-usb-autosuspend-bug.md)。
 
 ## 项目结构
 
@@ -19,9 +20,9 @@ roscar/
 ## 构建方式
 
 ```bash
-cd /home/relog/roscar
+cd /home/yilong/roscar
 colcon build --symlink-install
-source install/setup.bash
+source install/setup.bash  # 或 sic
 ```
 
 - dm_imu: `--symlink-install` 允许 Python 文件修改后无需重新 build
@@ -36,33 +37,38 @@ Python ROS 2 包，通过 `pyserial` 读取 DM IMU 串口数据，发布：
 - `geometry_msgs/Vector3Stamped` — `/imu/rpy`（默认度）
 - `geometry_msgs/PoseStamped` — `/imu/pose`
 
+**连接方式**：IMU 通过 RS-485 → USB 适配器连接，设备路径 `/dev/ttyUSB0`。USB 断开时后台读线程会自动重连（等待设备重连最多 60 秒）。
+
 关键文件：
 - `dm_imu/node.py:27` — `DmImuNode`，200Hz 定时轮询
-- `dm_imu/modules/dm_serial.py:34` — `DM_Serial`，后台读线程 + 主线程取最新帧
+- `dm_imu/modules/dm_serial.py:34` — `DM_Serial`，后台读线程 + 主线程取最新帧，含 USB 断开自动恢复
 - `dm_imu/modules/dm_crc.py:40` — `dm_crc16`，CCITT 表驱动 CRC16（初值 0xFFFF）
 - `config/params.yaml` — 默认参数
-- `launch/dm_imu.launch.py` — 启动文件，默认 port `/dev/ttyACM0`
+- `launch/dm_imu.launch.py` — 启动文件，默认 port `/dev/ttyUSB0`
+- `launch/dm_imu_rviz.launch.py` — 启动 IMU + RViz 可视化
 
 串口帧格式（19 字节）：`0x55 0xAA | ? | RID | 3×float32(LE) | CRC16(LE) | 0x0A`
 - RID 0x01 = 加速度，0x02 = 陀螺仪，0x03 = RPY（度）
 - CRC 默认包含帧头 0x55,0xAA；失败自动尝试不含帧头
 
 默认参数：
-- `port`: `/dev/ttyACM0`, `baudrate`: 921600
+- `port`: `/dev/ttyUSB0`, `baudrate`: 921600
 - `publish_imu_data: true`, `publish_rpy: true`, `publish_pose: true`
 - `frame_id: imu_link`, `publish_rpy_in_degree: true`, `qos_reliable: true`
 
 ## ldlidar_stl_ros2 — C++ 激光雷达驱动
 
-支持 LDROBOT LD06 / LD19 / STL-27L。通过串口获取点云，发布 `sensor_msgs/LaserScan`。
+支持 LDROBOT LD06 / LD19 / STL-27L。通过树莓派 GPIO UART（`/dev/ttyAMA0`）连接 LD06 获取点云，发布 `sensor_msgs/LaserScan`。
 
 关键文件：
 - `src/demo.cpp` — 节点入口，参数声明、雷达初始化、10Hz 主循环
 - `ldlidar_driver/` — 厂商 SDK：串口通讯、数据解析(LiPKG)、滤波(TOFBF)
 
-LD06 参数：`product_name: LDLiDAR_LD06`, `topic_name: scan`, `frame_id: base_laser`, `port_baudrate: 230400`
+LD06 参数：`product_name: LDLiDAR_LD06`, `topic_name: scan`, `frame_id: base_laser`, `port_name: /dev/ttyAMA0`（树莓派 GPIO UART）, `port_baudrate: 230400`
 
 注意：`src/demo.cpp:161` 第一个 scan 帧会被跳过（用于计算 scan_time 差值）。
+
+Pi 5 GPIO UART 启用：`enable_uart=1` 加入 `/boot/firmware/config.txt`，重启后 `/dev/ttyAMA0` 即 GPIO14(TXD)/GPIO15(RXD)。
 
 ## carto — Cartographer 建图
 
@@ -81,7 +87,7 @@ LD06 参数：`product_name: LDLiDAR_LD06`, `topic_name: scan`, `frame_id: base_
 ros2 launch carto create_map.launch.py
 
 # 指定 IMU 端口
-ros2 launch carto create_map.launch.py imu_port:=/dev/ttyACM0
+ros2 launch carto create_map.launch.py imu_port:=/dev/ttyUSB0
 ```
 
 ### TF 树
@@ -126,20 +132,20 @@ ros2 launch carto save_map.launch.py map_name:=my_map
 # 生成 my_map.pgm + my_map.yaml + my_map.pbstream
 
 # 或手动分别保存
-ros2 run nav2_map_server map_saver_cli -f /home/relog/roscar/src/map/my_map
+ros2 run nav2_map_server map_saver_cli -f /home/yilong/roscar/src/map/my_map
 ros2 service call /write_state cartographer_ros_msgs/srv/WriteState \
-  "{filename: '/home/relog/roscar/src/map/my_map.pbstream'}"
+  "{filename: '/home/yilong/roscar/src/map/my_map.pbstream'}"
 
 # 从 pbstream 离线导出栅格地图
 ros2 run cartographer_ros cartographer_pbstream_to_ros_map \
-  -pbstream_filename /home/relog/roscar/src/map/my_map.pbstream \
-  -map_filestem /home/relog/roscar/src/map/my_map
+  -pbstream_filename /home/yilong/roscar/src/map/my_map.pbstream \
+  -map_filestem /home/yilong/roscar/src/map/my_map
 ```
 
 ### 调试经验
 
 - **TF "imu_link does not exist"**：需要 `base_link → imu_link` 的 static_transform_publisher。`carto_2d.launch.py` 有但 `create_map.launch.py` 如果漏了就会报这个 warning。
-- **`ordered_multi_queue` waiting for IMU**：Cartographer 在等 IMU 数据但没收到。检查 IMU 端口是否正确（`/dev/ttyACM0` vs `/dev/ttyACM1`）、`publish_imu_data` 是否为 true、以及 `ros2 topic hz /imu/data` 确认 IMU 是否在发数据。
+- **`ordered_multi_queue` waiting for IMU**：Cartographer 在等 IMU 数据但没收到。检查 IMU 端口是否正确（`/dev/ttyUSB0`）、`publish_imu_data` 是否为 true、以及 `ros2 topic hz /imu/data` 确认 IMU 是否在发数据。
 - **配置参数导致 SIGABRT**：Cartographer Lua 配置中，某些参数值（如 `occupied_space_weight` 过高、`ceres_solver_options` 字段覆盖、`use_imu_based` 开启等）可能导致崩溃。遇到 SIGABRT 时先回退配置，逐参数排查。
 - **IMU 可以临时关掉**：设置 `use_imu_data = false` 用纯激光跑通，确认 SLAM 本身没问题后再加回 IMU 调试。
 
@@ -147,8 +153,8 @@ ros2 run cartographer_ros cartographer_pbstream_to_ros_map \
 
 ```bash
 # 串口权限
-sudo chmod 777 /dev/ttyUSB0
-sudo chmod 777 /dev/ttyACM0
+sudo chmod 777 /dev/ttyAMA0  # LD06 GPIO UART
+sudo chmod 777 /dev/ttyUSB0  # IMU RS-485 USB 适配器
 
 # 一键建图
 ros2 launch carto create_map.launch.py
@@ -170,7 +176,9 @@ ros2 launch carto save_map.launch.py map_name:=my_map
 - 传感器帧：`imu_link`（IMU）、`base_laser`（LiDAR）
 - 新增节点遵循 dm_imu 的架构模式（后台读线程 + 主线程发布，Lock 保护共享数据）
 - Cartographer 无轮式里程计，依赖 IMU 旋转 + 扫描匹配做位姿估计
-- IMU 端口默认 `/dev/ttyACM0`
+- IMU 端口默认 `/dev/ttyUSB0`（RS-485 USB 适配器）
+- LD06 端口默认 `/dev/ttyAMA0`（GPIO UART）
+- `sic` = source install/setup.bash（定义在 `~/.bashrc`）
 
 ## roscar_nav — Cartographer 定位 + Nav2 路径规划
 
@@ -181,7 +189,7 @@ ros2 launch carto save_map.launch.py map_name:=my_map
 - `launch/localize.launch.py` — 仅定位（IMU + LiDAR + Cartographer 定位 + pose_to_odom）
 - `config/carto_localize.lua` — Cartographer 纯定位 Lua 参数
 - `config/nav2_params.yaml` — Nav2 全部参数（planner/controller/costmap/BT/behavior）
-- `roscar_nav/pose_to_odom.py` — TF 变换 → `/odom` Odometry 话题（Nav2 Controller 需要）
+- `roscar_nav/pose_to_odom.py` — TF 变换 → `/odom` Odometry 话题（Nav2 Controller 需要）。参数：`publish_rate`(50Hz)、`odom_frame`、`base_frame`
 - `rviz/nav2_view.rviz` — RViz 预置配置（含 Map/TF/LaserScan/Plan/Costmap/GoalTool）
 
 ### 架构
@@ -197,11 +205,11 @@ Map Server (pgm)  ──┤                           └── /odom (pose_to_o
 ### 运行
 
 ```bash
-# 一键启动定位 + 路径规划 + RViz
+# 一键启动定位 + 路径规划（headless，默认 use_rviz=false）
 ros2 launch roscar_nav navigate.launch.py
 
-# 无 RViz（headless）
-ros2 launch roscar_nav navigate.launch.py use_rviz:=false
+# 带 RViz
+ros2 launch roscar_nav navigate.launch.py use_rviz:=true
 
 # 仅定位
 ros2 launch roscar_nav localize.launch.py
@@ -216,8 +224,8 @@ ros2 launch roscar_nav navigate.launch.py \
 ### RViz 使用
 
 ```bash
-source /home/relog/roscar/install/setup.bash
-rviz2 -d /home/relog/roscar/install/roscar_nav/share/roscar_nav/rviz/nav2_view.rviz
+source /home/yilong/roscar/install/setup.bash
+rviz2 -d /home/yilong/roscar/install/roscar_nav/share/roscar_nav/rviz/nav2_view.rviz
 ```
 必须加载预置配置文件，裸 `rviz2` 没有预置 Display 看不到 `/map`。
 
@@ -228,6 +236,8 @@ rviz2 -d /home/relog/roscar/install/roscar_nav/share/roscar_nav/rviz/nav2_view.r
 - `optimize_every_n_nodes = 20` — 定期优化但不如建图频繁
 - `submaps.num_range_data = 160` — 更少创建 submap（建图为 90）
 - 其余扫描匹配参数与建图一致
+
+`localize.launch.py` 使用 `OpaqueFunction` 仅在 initial_x/y/yaw_deg 非零时才传 `-initial_trajectory_pose` 给 Cartographer，避免每次都重新初始化。`map_dir` 默认 `/home/yilong/roscar/src/map`。
 
 [`nav2_params.yaml`](src/roscar_nav/config/nav2_params.yaml)：
 - 全局规划器：Smac Hybrid-A* (Reeds-Shepp)

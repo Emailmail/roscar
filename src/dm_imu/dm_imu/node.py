@@ -29,7 +29,7 @@ class DmImuNode(Node):
         super().__init__('dm_imu')
 
         # ---------- Parameters ----------
-        self.declare_parameter('port', '/dev/ttyACM0')
+        self.declare_parameter('port', '/dev/ttyUSB0')
         self.declare_parameter('baudrate', 921600)
         self.declare_parameter('frame_id', 'imu_link')
         self.declare_parameter('publish_rpy_in_degree', True) # 若希望 /imu/rpy 以“度”发布，把 False 改 True
@@ -47,7 +47,7 @@ class DmImuNode(Node):
             except Exception:
                 return default
 
-        self.port = _p('port', '/dev/ttyACM0')
+        self.port = _p('port', '/dev/ttyUSB0')
         self.frame_id = _p('frame_id', 'imu_link')
         self.publish_rpy = bool(_p('publish_rpy', True))
         self.publish_rpy_in_degree = bool(_p('publish_rpy_in_degree', True))
@@ -266,13 +266,8 @@ class DmImuNode(Node):
             return
         self._closing.set()
         try:
-            if hasattr(self.ser, 'stop_reader'):
-                self.ser.stop_reader()
-        except Exception:
-            pass
-        try:
-            if hasattr(self.ser, 'close'):
-                self.ser.close()
+            if hasattr(self, 'ser'):
+                self.ser.destory()
         except Exception:
             pass
         try:
