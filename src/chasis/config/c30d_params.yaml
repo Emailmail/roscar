@@ -1,0 +1,9 @@
+# C30D chassis controller — default parameters
+# Protocol: 11-byte downlink frame @ 115200 8N1 over STM32 USART3
+# See src/doc/ros_protocol.md Section 4
+
+c30d_ctrl:
+  ros__parameters:
+    port: /dev/ttyACM0
+    baudrate: 115200
+    publish_hz: 50.0
