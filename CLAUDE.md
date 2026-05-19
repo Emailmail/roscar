@@ -14,6 +14,9 @@ roscar/
 │   ├── ldlidar_stl_ros2/     # C++ (ament_cmake) — LDROBOT 激光雷达驱动 (LD06/LD19/STL-27L)
 │   ├── carto/                # C++ (ament_cmake) — Cartographer 建图 launch + config
 │   ├── roscar_nav/           # Python (ament_python) — Cartographer 定位 + Nav2 路径规划
+│   ├── chasis/               # Python (ament_python) — C30D 底盘串口控制 (STM32 USART3)
+│   ├── core/                 # Python (ament_python) — 总控节点，系统编排调度
+│   ├── doc/                  # 通信协议文档 (ros_protocol.md)
 │   └── map/                  # 存放 map 文件（pgm + yaml + pbstream）
 ```
 
@@ -29,6 +32,8 @@ source install/setup.bash  # 或 sic
 - ldlidar_stl_ros2: C++ 包，修改后需重新 `colcon build`
 - carto: C++ 包，只包含 launch/config 文件和脚本，修改后需 `colcon build`
 - roscar_nav: Python 包，`--symlink-install` 允许修改后无需重新 build
+- chasis: Python 包，`--symlink-install` 允许修改后无需重新 build
+- core: Python 包，`--symlink-install` 允许修改后无需重新 build
 
 ## dm_imu — Python 串口节点
 
@@ -155,6 +160,7 @@ ros2 run cartographer_ros cartographer_pbstream_to_ros_map \
 # 串口权限
 sudo chmod 777 /dev/ttyAMA0  # LD06 GPIO UART
 sudo chmod 777 /dev/ttyUSB0  # IMU RS-485 USB 适配器
+sudo chmod 777 /dev/ttyACM0  # C30D 底盘 STM32 USART3
 
 # 一键建图
 ros2 launch carto create_map.launch.py
@@ -163,6 +169,11 @@ ros2 launch carto create_map.launch.py
 ros2 launch dm_imu dm_imu.launch.py
 ros2 launch ldlidar_stl_ros2 ld06.launch.py
 ros2 launch carto carto_2d.launch.py
+
+# 底盘控制
+ros2 launch chasis c30d_ctrl.launch.py
+# 键盘遥控
+ros2 launch chasis c30d_keyctrl.launch.py
 
 # 保存地图
 ros2 launch carto save_map.launch.py map_name:=my_map
@@ -178,7 +189,69 @@ ros2 launch carto save_map.launch.py map_name:=my_map
 - Cartographer 无轮式里程计，依赖 IMU 旋转 + 扫描匹配做位姿估计
 - IMU 端口默认 `/dev/ttyUSB0`（RS-485 USB 适配器）
 - LD06 端口默认 `/dev/ttyAMA0`（GPIO UART）
+- C30D 底盘端口默认 `/dev/ttyACM0`（STM32 USART3）
 - `sic` = source install/setup.bash（定义在 `~/.bashrc`）
+
+## chasis — C30D 底盘串口控制
+
+通过串口向 STM32 底盘控制板 (USART3) 下发速度指令，协议详见 [src/doc/ros_protocol.md](src/doc/ros_protocol.md)。
+
+两个节点：
+- **c30d_ctrl** — 底盘驱动节点，订阅 `/cmd_vel` 并通过串口下发 11 字节控制帧
+- **key_ctrl** — 键盘遥操作节点，监听 WASD + Q/E 键发布 `/cmd_vel`
+
+关键文件：
+- `chasis/c30d_ctrl.py:45` — `C30dCtrlNode`，50Hz 定时发送，订阅 `/cmd_vel`
+- `chasis/key_ctrl.py:23` — `KeyCtrlNode`，后台键盘线程 + 定时发布，含松键自动停车
+- `launch/c30d_ctrl.launch.py` — 仅启动底盘控制
+- `launch/c30d_keyctrl.launch.py` — 底盘控制 + 键盘遥操作（需要 xterm）
+- `config/c30d_params.yaml` — 默认参数
+
+### 通信参数
+
+- 波特率：115200 8N1，无硬件流控
+- 下行帧：11 字节（帧头 `0x7B`/帧尾 `0x7D`，XOR 校验）
+- 速度编码：mm/s，大端 int16，3 轴 (vx/vy/vz)
+
+### 运行
+
+```bash
+# 仅底盘控制（接收 Nav2 的 /cmd_vel）
+ros2 launch chasis c30d_ctrl.launch.py
+
+# 底盘控制 + 键盘遥控
+ros2 launch chasis c30d_keyctrl.launch.py
+
+# 指定串口
+ros2 launch chasis c30d_ctrl.launch.py port:=/dev/ttyUSB0
+```
+
+### 键盘操控
+
+| 键 | 动作 |
+|----|------|
+| W/S | 前进/后退 |
+| A/D | 左移/右移 |
+| Q/E | 逆时针/顺时针旋转 |
+| 其他键 | 停车 |
+| 松键超时 | 0.3 秒自动停车 |
+
+## core — 总控节点，系统编排调度
+
+一键启动多子系统组合。
+
+关键文件：
+- `launch/explore_manu.launch.py` — 键盘操控 + 实时建图（carto + chasis）
+
+### 运行
+
+```bash
+# 键盘操控 + 实时建图
+ros2 launch core explore_manu.launch.py
+
+# 指定串口
+ros2 launch core explore_manu.launch.py imu_port:=/dev/ttyUSB0 chasis_port:=/dev/ttyACM0
+```
 
 ## roscar_nav — Cartographer 定位 + Nav2 路径规划
 
@@ -199,7 +272,7 @@ DM_IMU → /imu/data ──┐
 LD06   → /scan     ──┤
                      ├── Cartographer 纯定位 ── TF: map → odom → base_link
 Map Server (pgm)  ──┤                           └── /odom (pose_to_odom)
-                     └── Nav2 Planner + Controller ── /cmd_vel (→ STM32)
+                     └── Nav2 Planner + Controller ── /cmd_vel ── c30d_ctrl → STM32
 ```
 
 ### 运行
@@ -261,3 +334,4 @@ rviz2 -d /home/yilong/roscar/install/roscar_nav/share/roscar_nav/rviz/nav2_view.
 - pyserial (dm_imu)
 - sensor_msgs, geometry_msgs, nav_msgs (dm_imu + roscar_nav)
 - rclcpp, sensor_msgs, tf2_ros (ldlidar_stl_ros2)
+- pyserial, geometry_msgs (chasis)
