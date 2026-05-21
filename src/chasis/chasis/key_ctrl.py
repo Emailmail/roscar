@@ -21,7 +21,11 @@ _KEY_MAP = {
 
 
 class KeyCtrlNode(Node):
-    """键盘遥操作节点 — 读取 WASD + Q/E 并发布 /cmd_vel。"""
+    """键盘遥操作节点（三轮全向轮）— 读取 WASD + Q/E 并发布 /cmd_vel。
+
+    W/S: 前进/后退 (vx)   A/D: 左移/右移 (vy)   Q/E: 旋转 (vz)
+    STM32 内部完成三轮逆运动学解算，将 vx/vy/vz 映射到各轮转速。
+    """
 
     def __init__(self):
         super().__init__('key_ctrl')

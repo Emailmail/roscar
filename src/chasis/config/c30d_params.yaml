@@ -1,6 +1,7 @@
-# C30D chassis controller — default parameters
+# C30D chassis controller — default parameters (三轮全向轮)
 # Protocol: 11-byte downlink frame @ 115200 8N1 over STM32 USART3
-# See src/doc/ros_protocol.md Section 4
+# vx/vy/vz → STM32 内部三轮逆运动学解算
+# See src/doc/ros_to_c30d.md Section 4
 
 c30d_ctrl:
   ros__parameters:

@@ -1,6 +1,6 @@
 # roscar
 
-ROS 2 Jazzy 机器人项目，集成 DM IMU 姿态传感器和 LDROBOT 激光雷达（LD06），用于差分驱动小车。
+ROS 2 Jazzy 机器人项目，集成 DM IMU 姿态传感器和 LDROBOT 激光雷达（LD06），用于三轮全向轮小车。
 
 **当前状态**：传感器驱动就绪，Cartographer LiDAR + IMU 建图已实现（无轮式里程计）。roscar_nav 定位+Nav2路径规划已实现。
 **IMU 连接方式**：DM IMU 通过 RS-485 → MAX485 TTL 模块 → GPIO UART4（`/dev/ttyAMA4`，GPIO 12/13，pins 32/33）。绕过 RP1 USB 控制器，彻底解决树莓派5 USB 周期性重置问题（详见 [doc/rpi5-usb-autosuspend-bug.md](doc/rpi5-usb-autosuspend-bug.md)）。
@@ -191,12 +191,13 @@ ros2 launch carto save_map.launch.py map_name:=my_map
 - Cartographer 无轮式里程计，依赖 IMU 旋转 + 扫描匹配做位姿估计
 - IMU 端口默认 `/dev/ttyAMA4`（GPIO UART4，RS-485 → MAX485 TTL）
 - LD06 端口默认 `/dev/ttyAMA0`（GPIO UART）
-- C30D 底盘端口默认 `/dev/ttyACM0`（STM32 USART3）
+- C30D 底盘端口默认 `/dev/ttyACM0`（STM32 USART3），三轮全向轮
+- STM32 下行协议不变（vx/vy/vz 11字节帧），逆运动学由固件处理
 - `sic` = source install/setup.bash（定义在 `~/.bashrc`）
 
-## chasis — C30D 底盘串口控制
+## chasis — C30D 底盘串口控制（三轮全向轮）
 
-通过串口向 STM32 底盘控制板 (USART3) 下发速度指令，协议详见 [src/doc/ros_protocol.md](src/doc/ros_protocol.md)。
+通过串口向 STM32 底盘控制板 (USART3) 下发速度指令（vx/vy/vz），STM32 内部完成三轮全向轮逆运动学解算。协议详见 [src/doc/ros_to_c30d.md](src/doc/ros_to_c30d.md)。
 
 两个节点：
 - **c30d_ctrl** — 底盘驱动节点，订阅 `/cmd_vel` 并通过串口下发 11 字节控制帧
@@ -273,7 +274,7 @@ ros2 launch core explore_manu.launch.py imu_port:=/dev/ttyUSB0 chasis_port:=/dev
 DM_IMU → /imu/data ──┐
 LD06   → /scan     ──┤
                      ├── Cartographer 纯定位 ── TF: map → odom → base_link
-Map Server (pgm)  ──┤                           └── /odom (pose_to_odom)
+Map Server (pgm)  ──┤                           └── /odom (c30d_ctrl: pose from TF + twist from STM32 编码器)
                      └── Nav2 Planner + Controller ── /cmd_vel ── c30d_ctrl → STM32
 ```
 
@@ -315,9 +316,9 @@ rviz2 -d /home/yilong/roscar/install/roscar_nav/share/roscar_nav/rviz/nav2_view.
 `localize.launch.py` 使用 `OpaqueFunction` 仅在 initial_x/y/yaw_deg 非零时才传 `-initial_trajectory_pose` 给 Cartographer，避免每次都重新初始化。`map_dir` 默认 `/home/yilong/roscar/src/map`。
 
 [`nav2_params.yaml`](src/roscar_nav/config/nav2_params.yaml)：
-- 全局规划器：Smac Hybrid-A* (Reeds-Shepp)
-- 局部控制器：Regulated Pure Pursuit
-- 最大线速度：0.1 m/s，轮距：0.19m
+- 全局规划器：Smac Hybrid-A* (Reeds-Shepp, minimum_turning_radius=0 适配全向轮)
+- 局部控制器：Regulated Pure Pursuit（全向轮，STM32 内部完成三轮逆运动学）
+- 最大线速度：0.1 m/s，禁止 rotate_to_heading（全向轮无需预先转向）
 - 无需 AMCL（Cartographer 提供 `map→odom→base_link`）
 - `bt_navigator` 不设 `plugin_lib_names`（用 Nav2 默认列表避免重复注册）
 

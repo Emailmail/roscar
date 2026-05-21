@@ -87,14 +87,8 @@ def generate_launch_description():
             ],
         )]
 
-    # ── Pose to Odometry ───────────────────────────────────────────
-
-    pose_to_odom = Node(
-        package="roscar_nav",
-        executable="pose_to_odom",
-        name="pose_to_odom",
-        output="screen",
-    )
+    # /odom is published by c30d_ctrl (STM32 encoder speeds + Cartographer TF pose).
+    # pose_to_odom is kept as a standalone fallback (run manually if needed).
 
     return LaunchDescription([
         DeclareLaunchArgument("imu_port", default_value="/dev/ttyAMA4",
@@ -110,5 +104,4 @@ def generate_launch_description():
         lidar_launch,
         base_link_to_imu_tf,
         OpaqueFunction(function=make_cartographer_node),
-        pose_to_odom,
     ])
