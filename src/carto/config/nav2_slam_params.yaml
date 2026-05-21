@@ -1,17 +1,9 @@
-# Nav2 parameters for roscar — localization by Cartographer, no AMCL.
+# Nav2 parameters for roscar — SLAM exploration mode.
+# Cartographer (mapping mode) provides /map, no map_server needed.
 #
-# Frame conventions:
+# Frame conventions (same as nav2_params.yaml):
 #   map -> odom -> base_link -> base_laser  (Cartographer + ld06 TF)
 #                            -> imu_link     (static TF, identity)
-# /odom published by pose_to_odom from TF
-
-# ── Map Server ──────────────────────────────────────────────────────
-map_server:
-  ros__parameters:
-    use_sim_time: false
-    yaml_filename: ""
-    topic_name: /map
-    frame_id: map
 
 # ── Planner (Smac Hybrid-A*, diff drive) ───────────────────────────
 planner_server:
@@ -55,7 +47,6 @@ controller_server:
       desired_linear_vel: 0.1
       max_linear_vel: 0.1
       min_linear_vel: 0.0
-      # Lookahead tuned for slow speed (0.1 m/s)
       lookahead_dist: 0.4
       min_lookahead_dist: 0.25
       max_lookahead_dist: 0.8
@@ -73,7 +64,8 @@ controller_server:
       use_cost_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.9
       regulated_linear_scaling_min_speed: 0.05
-      use_rotate_to_heading: false
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.785
       max_angular_accel: 3.2
       max_robot_pose_search_dist: 10.0
       use_interpolation: true
@@ -87,7 +79,6 @@ bt_navigator:
     odom_topic: /odom
     bt_loop_duration: 10
     default_server_timeout: 20
-    # Not specified — use Nav2's auto-loaded default plugin set
 
 # ── Behavior Server (recovery actions) ─────────────────────────────
 behavior_server:
@@ -117,19 +108,18 @@ behavior_server:
     wait:
       plugin: "nav2_behaviors::Wait"
 
-# ── Lifecycle Manager ──────────────────────────────────────────────
+# ── Lifecycle Manager (no map_server — map comes from Cartographer) ─
 lifecycle_manager:
   ros__parameters:
     use_sim_time: false
     node_names:
-      - map_server
       - planner_server
       - controller_server
       - bt_navigator
       - behavior_server
     autostart: true
 
-# ── Global Costmap ─────────────────────────────────────────────────
+# ── Global Costmap (uses Cartographer's /map) ──────────────────────
 global_costmap:
   global_costmap:
     ros__parameters:

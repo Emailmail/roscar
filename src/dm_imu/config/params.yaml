@@ -1,6 +1,6 @@
 dm_imu:
   ros__parameters:
-    port: /dev/ttyUSB0
+    port: /dev/ttyAMA4
     baudrate: 921600
     frame_id: imu_link
 

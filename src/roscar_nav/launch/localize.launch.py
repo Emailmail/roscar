@@ -29,7 +29,7 @@ def generate_launch_description():
         launch_arguments={"port": imu_port}.items(),
     )
 
-    # Note: lidar port is hardcoded in ld06.launch.py (/dev/ttyUSB0)
+    # Note: lidar port is hardcoded in ld06.launch.py (/dev/ttyAMA4)
     lidar_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([FindPackageShare("ldlidar_stl_ros2"), "launch", "ld06.launch.py"])
@@ -97,7 +97,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument("imu_port", default_value="/dev/ttyUSB0",
+        DeclareLaunchArgument("imu_port", default_value="/dev/ttyAMA4",
                               description="IMU serial port"),
         DeclareLaunchArgument("map_dir", default_value="/home/yilong/roscar/src/map",
                               description="Directory containing map files"),

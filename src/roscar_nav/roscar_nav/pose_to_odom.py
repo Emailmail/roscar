@@ -24,7 +24,9 @@ class PoseToOdom(Node):
 
         self.last_pose = None
         self.last_time = None
-        self.latest_odom = None
+
+        self._filtered_linear_x = 0.0
+        self._filtered_angular_z = 0.0
 
         self.timer = self.create_timer(1.0 / self.publish_rate, self.timer_callback)
 
@@ -68,8 +70,11 @@ class PoseToOdom(Node):
         odom.pose.pose.position.y = t.y
         odom.pose.pose.position.z = 0.0
         odom.pose.pose.orientation = r
-        odom.twist.twist.linear.x = linear_x
-        odom.twist.twist.angular.z = angular_z
+        alpha = 0.3
+        self._filtered_linear_x = alpha * linear_x + (1.0 - alpha) * self._filtered_linear_x
+        self._filtered_angular_z = alpha * angular_z + (1.0 - alpha) * self._filtered_angular_z
+        odom.twist.twist.linear.x = self._filtered_linear_x
+        odom.twist.twist.angular.z = self._filtered_angular_z
 
         self.odom_pub.publish(odom)
 

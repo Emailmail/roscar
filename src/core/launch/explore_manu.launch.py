@@ -32,7 +32,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="false",
                               description="Use simulation (Gazebo) clock if true"),
-        DeclareLaunchArgument("imu_port", default_value="/dev/ttyUSB0",
+        DeclareLaunchArgument("imu_port", default_value="/dev/ttyAMA4",
                               description="DM IMU serial port"),
         DeclareLaunchArgument("chasis_port", default_value="/dev/ttyACM0",
                               description="C30D chassis serial port (STM32 USART3)"),

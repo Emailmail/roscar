@@ -3,7 +3,7 @@
 ROS 2 Jazzy 机器人项目，集成 DM IMU 姿态传感器和 LDROBOT 激光雷达（LD06），用于差分驱动小车。
 
 **当前状态**：传感器驱动就绪，Cartographer LiDAR + IMU 建图已实现（无轮式里程计）。roscar_nav 定位+Nav2路径规划已实现。
-**IMU 连接方式**：DM IMU 通过 RS-485 → USB 适配器连接，端口 `/dev/ttyUSB0`。树莓派5 USB（RP1 芯片）存在周期性重置问题（约 8-16 分钟一次），直接 USB CDC ACM（`/dev/ttyACM0`）连接会断开。RS-485 方案绕过该问题。详见 [doc/rpi5-usb-autosuspend-bug.md](doc/rpi5-usb-autosuspend-bug.md)。
+**IMU 连接方式**：DM IMU 通过 RS-485 → MAX485 TTL 模块 → GPIO UART4（`/dev/ttyAMA4`，GPIO 12/13，pins 32/33）。绕过 RP1 USB 控制器，彻底解决树莓派5 USB 周期性重置问题（详见 [doc/rpi5-usb-autosuspend-bug.md](doc/rpi5-usb-autosuspend-bug.md)）。
 
 ## 项目结构
 
@@ -42,14 +42,14 @@ Python ROS 2 包，通过 `pyserial` 读取 DM IMU 串口数据，发布：
 - `geometry_msgs/Vector3Stamped` — `/imu/rpy`（默认度）
 - `geometry_msgs/PoseStamped` — `/imu/pose`
 
-**连接方式**：IMU 通过 RS-485 → USB 适配器连接，设备路径 `/dev/ttyUSB0`。USB 断开时后台读线程会自动重连（等待设备重连最多 60 秒）。
+**连接方式**：IMU 通过 RS-485 → MAX485 TTL 转换模块 → GPIO UART4（`/dev/ttyAMA4`）。USB 断开时后台读线程会自动重连（等待设备重连最多 60 秒）。
 
 关键文件：
 - `dm_imu/node.py:27` — `DmImuNode`，200Hz 定时轮询
 - `dm_imu/modules/dm_serial.py:34` — `DM_Serial`，后台读线程 + 主线程取最新帧，含 USB 断开自动恢复
 - `dm_imu/modules/dm_crc.py:40` — `dm_crc16`，CCITT 表驱动 CRC16（初值 0xFFFF）
 - `config/params.yaml` — 默认参数
-- `launch/dm_imu.launch.py` — 启动文件，默认 port `/dev/ttyUSB0`
+- `launch/dm_imu.launch.py` — 启动文件，默认 port `/dev/ttyAMA4`
 - `launch/dm_imu_rviz.launch.py` — 启动 IMU + RViz 可视化
 
 串口帧格式（19 字节）：`0x55 0xAA | ? | RID | 3×float32(LE) | CRC16(LE) | 0x0A`
@@ -57,7 +57,7 @@ Python ROS 2 包，通过 `pyserial` 读取 DM IMU 串口数据，发布：
 - CRC 默认包含帧头 0x55,0xAA；失败自动尝试不含帧头
 
 默认参数：
-- `port`: `/dev/ttyUSB0`, `baudrate`: 921600
+- `port`: `/dev/ttyAMA4`, `baudrate`: 921600
 - `publish_imu_data: true`, `publish_rpy: true`, `publish_pose: true`
 - `frame_id: imu_link`, `publish_rpy_in_degree: true`, `qos_reliable: true`
 
@@ -74,6 +74,8 @@ LD06 参数：`product_name: LDLiDAR_LD06`, `topic_name: scan`, `frame_id: base_
 注意：`src/demo.cpp:161` 第一个 scan 帧会被跳过（用于计算 scan_time 差值）。
 
 Pi 5 GPIO UART 启用：`enable_uart=1` 加入 `/boot/firmware/config.txt`，重启后 `/dev/ttyAMA0` 即 GPIO14(TXD)/GPIO15(RXD)。
+
+IMU 使用 UART4（`dtoverlay=uart4-pi5` 加入 config.txt），设备 `/dev/ttyAMA4`，引脚 GPIO12(TXD4, pin32) / GPIO13(RXD4, pin33)。
 
 ## carto — Cartographer 建图
 
@@ -92,7 +94,7 @@ Pi 5 GPIO UART 启用：`enable_uart=1` 加入 `/boot/firmware/config.txt`，重
 ros2 launch carto create_map.launch.py
 
 # 指定 IMU 端口
-ros2 launch carto create_map.launch.py imu_port:=/dev/ttyUSB0
+ros2 launch carto create_map.launch.py imu_port:=/dev/ttyAMA4
 ```
 
 ### TF 树
@@ -150,7 +152,7 @@ ros2 run cartographer_ros cartographer_pbstream_to_ros_map \
 ### 调试经验
 
 - **TF "imu_link does not exist"**：需要 `base_link → imu_link` 的 static_transform_publisher。`carto_2d.launch.py` 有但 `create_map.launch.py` 如果漏了就会报这个 warning。
-- **`ordered_multi_queue` waiting for IMU**：Cartographer 在等 IMU 数据但没收到。检查 IMU 端口是否正确（`/dev/ttyUSB0`）、`publish_imu_data` 是否为 true、以及 `ros2 topic hz /imu/data` 确认 IMU 是否在发数据。
+- **`ordered_multi_queue` waiting for IMU**：Cartographer 在等 IMU 数据但没收到。检查 IMU 端口是否正确（`/dev/ttyAMA4`）、`publish_imu_data` 是否为 true、以及 `ros2 topic hz /imu/data` 确认 IMU 是否在发数据。
 - **配置参数导致 SIGABRT**：Cartographer Lua 配置中，某些参数值（如 `occupied_space_weight` 过高、`ceres_solver_options` 字段覆盖、`use_imu_based` 开启等）可能导致崩溃。遇到 SIGABRT 时先回退配置，逐参数排查。
 - **IMU 可以临时关掉**：设置 `use_imu_data = false` 用纯激光跑通，确认 SLAM 本身没问题后再加回 IMU 调试。
 
@@ -159,7 +161,7 @@ ros2 run cartographer_ros cartographer_pbstream_to_ros_map \
 ```bash
 # 串口权限
 sudo chmod 777 /dev/ttyAMA0  # LD06 GPIO UART
-sudo chmod 777 /dev/ttyUSB0  # IMU RS-485 USB 适配器
+sudo chmod 777 /dev/ttyAMA4  # IMU GPIO UART4
 sudo chmod 777 /dev/ttyACM0  # C30D 底盘 STM32 USART3
 
 # 一键建图
@@ -187,7 +189,7 @@ ros2 launch carto save_map.launch.py map_name:=my_map
 - 传感器帧：`imu_link`（IMU）、`base_laser`（LiDAR）
 - 新增节点遵循 dm_imu 的架构模式（后台读线程 + 主线程发布，Lock 保护共享数据）
 - Cartographer 无轮式里程计，依赖 IMU 旋转 + 扫描匹配做位姿估计
-- IMU 端口默认 `/dev/ttyUSB0`（RS-485 USB 适配器）
+- IMU 端口默认 `/dev/ttyAMA4`（GPIO UART4，RS-485 → MAX485 TTL）
 - LD06 端口默认 `/dev/ttyAMA0`（GPIO UART）
 - C30D 底盘端口默认 `/dev/ttyACM0`（STM32 USART3）
 - `sic` = source install/setup.bash（定义在 `~/.bashrc`）
