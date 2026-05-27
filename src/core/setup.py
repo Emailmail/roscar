@@ -10,7 +10,11 @@ setup(
         ('share/ament_index/resource_index/packages',
         [f'resource/{package_name}']),
         (f'share/{package_name}', ['package.xml']),
-        (f'share/{package_name}/launch', ['launch/explore_manu.launch.py']),
+        (f'share/{package_name}/launch', [
+            'launch/explore_manu.launch.py',
+            'launch/nav_auto.launch.py',
+            'launch/nav_manu.launch.py',
+        ]),
         (f'share/{package_name}/config', []),
     ],
     install_requires=['setuptools'],
@@ -22,6 +26,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'waypoint_follower = core.waypoint_follower:main',
         ],
     },
 )

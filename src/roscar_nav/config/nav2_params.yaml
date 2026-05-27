@@ -52,18 +52,18 @@ controller_server:
     controller_plugins: ["FollowPath"]
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.1
-      max_linear_vel: 0.1
+      desired_linear_vel: 0.2
+      max_linear_vel: 0.2
       min_linear_vel: 0.0
-      # Lookahead tuned for slow speed (0.1 m/s)
-      lookahead_dist: 0.4
-      min_lookahead_dist: 0.25
-      max_lookahead_dist: 0.8
+      # Lookahead tuned for speed (0.2 m/s)
+      lookahead_dist: 0.5
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 1.0
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.8
+      rotate_to_heading_angular_vel: 1.6
       transform_tolerance: 0.5
       use_velocity_scaled_lookahead_dist: true
-      min_approach_linear_vel: 0.05
+      min_approach_linear_vel: 0.1
       approach_velocity_scaling_dist: 1.5
       use_collision_detection: true
       max_allowed_time_to_collision_up_to_carrot: 1.0
@@ -72,7 +72,7 @@ controller_server:
       curvature_lookahead_dist: 0.5
       use_cost_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.05
+      regulated_linear_scaling_min_speed: 0.1
       use_rotate_to_heading: false
       max_angular_accel: 3.2
       max_robot_pose_search_dist: 10.0
@@ -109,8 +109,8 @@ behavior_server:
     spin:
       plugin: "nav2_behaviors::Spin"
       simulate_ahead_time: 2.0
-      max_rotational_vel: 1.0
-      min_rotational_vel: 0.4
+      max_rotational_vel: 2.0
+      min_rotational_vel: 0.8
       rotational_acc_lim: 3.2
     back_up:
       plugin: "nav2_behaviors::BackUp"
